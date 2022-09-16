@@ -270,29 +270,26 @@ namespace SQLGenerator
                     }
                     var rowarray = row.ToArray();
                     /*컬럼명(영문) 빈칸 오류*/
-                    //if (rowarray[1] == null)
-                    //{
-                    //    //SetErrorText($"D{rownum}");
-                    //  CloseExcel();
-                    //    return;
-                    //}
+                    if (rowarray[1] == null)
+                    {
+                        SetErrorText($"D{rownum}");
+                        return;
+                    }
                     /*타입 빈칸 오류*/
-                    //if (rowarray[2] == null)
-                    //{
-                    //    //SetErrorText($"E{rownum}");
-                    //  CloseExcel();
-                    //    return;
-                    //}
+                    if (rowarray[2] == null)
+                    {
+                        SetErrorText($"E{rownum}");
+                        return;
+                    }
                     /*길이 빈칸 오류(datetime 제외)*/
-                    //if (rowarray[3] == null)
-                    //{
-                    //    if (rowarray[2].ToString() != "datetime")
-                    //    {
-                    //        //SetErrorText($"F{rownum}");
-                    //  CloseExcel();
-                    //        return;
-                    //    }
-                    //}
+                    if (rowarray[3] == null)
+                    {
+                        if (rowarray[2].ToString() != "datetime")
+                        {
+                            SetErrorText($"F{rownum}");
+                            return;
+                        }
+                    }
                     if (rowarray[6] != null)
                     {
                         rowarray[6] = " AUTO_INCREMENT";
@@ -300,12 +297,11 @@ namespace SQLGenerator
                     if (rowarray[7] != null)
                     {
                         /*NOT NULL일 때 Default값 빈칸 오류*/
-                        //if (rowarray[8] == null)
-                        //{
-                        //    //SetErrorText($"K{rownum}");
-                        //  CloseExcel();
-                        //    return;
-                        //}
+                        if (rowarray[8] == null)
+                        {
+                            SetErrorText($"K{rownum}");
+                            return;
+                        }
                         rowarray[7] = " NOT NULL";
                     }
                     if (rowarray[8] != null)
@@ -316,12 +312,11 @@ namespace SQLGenerator
                     if (rowarray[4] != null)
                     {
                         /*기본키일 때 NOT NULL 조건 빈칸 오류*/
-                        //if (rowarray[7] == null)
-                        //{
-                        //    //SetErrorText($"J{rownum}");
-                        //  CloseExcel();
-                        //    return;
-                        //}
+                        if (rowarray[7] == null)
+                        {
+                            SetErrorText($"J{rownum}");
+                            return;
+                        }
                         rowarray[4] = $" PRIMARY KEY ({rowarray[1]})\n";
                         primarykey = rowarray[4].ToString();
                     }
@@ -351,6 +346,7 @@ namespace SQLGenerator
         }
         #endregion
 
+        #region 에러 텍스트 추가
         private void SetErrorText(string cell)
         {
             CloseExcel();
@@ -359,7 +355,9 @@ namespace SQLGenerator
                 xResultText.Text += $"Error: [{cell}] 값이 null입니다. \nSQL구문 생성을 중단합니다.\n";
             }));
         }
+        #endregion
 
+        #region 엑셀 프로세스 Kill 함수
         private void CloseExcel()
         {
             if (processId != 0)
@@ -372,6 +370,7 @@ namespace SQLGenerator
             //ExcelDoc.Close();
             //Application.Quit();
         }
+        #endregion
 
         #region Background Worker 관련 함수
         void worker_ProgressChanged(object sender, ProgressChangedEventArgs e)
