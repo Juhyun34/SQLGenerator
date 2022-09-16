@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
@@ -24,7 +25,7 @@ namespace SQLGenerator
         public int StartRowNum { get; set; }
         public int RowCount { get; set; }
         public string TableName_KOR { get; set; }
-        public string TableName_ENG { get; set; }        
+        public string TableName_ENG { get; set; }
     }
 
     /// <summary>
@@ -41,6 +42,9 @@ namespace SQLGenerator
         Microsoft.Office.Interop.Excel.Application Application { get; set; }
         List<TableInfo> Tables { get; set; } = new List<TableInfo>();
         BackgroundWorker Worker = new BackgroundWorker();
+        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwThreadId);
+        uint processId = 0;
 
         #region Excel 파일 경로 버튼 클릭 이벤트
         private void OpenExcelPathBtn_Click(object sender, RoutedEventArgs e)
@@ -50,7 +54,7 @@ namespace SQLGenerator
 
             var dr = ofd.ShowDialog();
 
-            if(dr == System.Windows.Forms.DialogResult.OK)
+            if (dr == System.Windows.Forms.DialogResult.OK)
             {
                 xExcelFilePath.Text = ofd.FileName;
             }
@@ -80,6 +84,8 @@ namespace SQLGenerator
                 Application = new Microsoft.Office.Interop.Excel.Application();
                 ExcelDoc = Application.Workbooks.Open(xExcelFilePath.Text);
                 ExcelSheet = ExcelDoc.Sheets[int.Parse(xSheetNumber.Text)];
+
+                GetWindowThreadProcessId(new IntPtr(Application.Hwnd), out processId);
 
                 Worker = new BackgroundWorker();
                 Worker.DoWork += new DoWorkEventHandler(Run);
@@ -118,7 +124,7 @@ namespace SQLGenerator
                         MessageBox.Show("Invalid username/password, please try again");
                         break;
                 }
-            }            
+            }
         }
         #endregion
 
@@ -218,18 +224,19 @@ namespace SQLGenerator
                 }
             }
             ExcelDoc.Save();
-            
+
         }
         #endregion
 
         #region 병합 셀 정보 얻기
         private void GetMergedCellInfo()
-        {            
+        {
             var index = 2;
             var cnt = 0;
 
-            while(index < ExcelSheet.UsedRange.Rows.Count){
-                
+            while (index < ExcelSheet.UsedRange.Rows.Count)
+            {
+
                 Range range = ExcelSheet.Range[$"A{index}"];
                 cnt = range.MergeArea.Count;
                 Tables.Add(new TableInfo()
@@ -248,7 +255,7 @@ namespace SQLGenerator
         private void Generate()
         {
             var totalsql = string.Empty;
-            foreach(var table in Tables)
+            foreach (var table in Tables)
             {
                 string sql = $"CREATE TABLE {table.TableName_ENG} (\n\t";
                 string primarykey = string.Empty;
@@ -263,26 +270,29 @@ namespace SQLGenerator
                     }
                     var rowarray = row.ToArray();
                     /*컬럼명(영문) 빈칸 오류*/
-                    if (rowarray[1] == null)
-                    {
-                        xResultText.Text += $"Error: [D{rownum}] 값이 null입니다. \nSQL구문 생성을 중단합니다.\n";
-                        return;
-                    }
+                    //if (rowarray[1] == null)
+                    //{
+                    //    //SetErrorText($"D{rownum}");
+                    //  CloseExcel();
+                    //    return;
+                    //}
                     /*타입 빈칸 오류*/
-                    if (rowarray[2] == null)
-                    {
-                        xResultText.Text += $"Error: [E{rownum}] 값이 null입니다. \nSQL구문 생성을 중단합니다.\n";
-                        return;
-                    }
+                    //if (rowarray[2] == null)
+                    //{
+                    //    //SetErrorText($"E{rownum}");
+                    //  CloseExcel();
+                    //    return;
+                    //}
                     /*길이 빈칸 오류(datetime 제외)*/
-                    if (rowarray[3] == null)
-                    {
-                        if (rowarray[2].ToString() != "datetime")
-                        {
-                            xResultText.Text += $"error: [f{rownum}] 값이 null입니다. \nsql구문 생성을 중단합니다.\n";
-                            return;
-                        }
-                    }
+                    //if (rowarray[3] == null)
+                    //{
+                    //    if (rowarray[2].ToString() != "datetime")
+                    //    {
+                    //        //SetErrorText($"F{rownum}");
+                    //  CloseExcel();
+                    //        return;
+                    //    }
+                    //}
                     if (rowarray[6] != null)
                     {
                         rowarray[6] = " AUTO_INCREMENT";
@@ -290,11 +300,12 @@ namespace SQLGenerator
                     if (rowarray[7] != null)
                     {
                         /*NOT NULL일 때 Default값 빈칸 오류*/
-                        if (rowarray[8] == null)
-                        {
-                            xResultText.Text += $"Error: [K{rownum}] 값이 null입니다. \nSQL구문 생성을 중단합니다.\n";
-                            return;
-                        }
+                        //if (rowarray[8] == null)
+                        //{
+                        //    //SetErrorText($"K{rownum}");
+                        //  CloseExcel();
+                        //    return;
+                        //}
                         rowarray[7] = " NOT NULL";
                     }
                     if (rowarray[8] != null)
@@ -305,11 +316,12 @@ namespace SQLGenerator
                     if (rowarray[4] != null)
                     {
                         /*기본키일 때 NOT NULL 조건 빈칸 오류*/
-                        if (rowarray[7] == null)
-                        {
-                            xResultText.Text += $"Error: [J{rownum}] 값이 null입니다. \nSQL구문 생성을 중단합니다.\n";
-                            return;
-                        }
+                        //if (rowarray[7] == null)
+                        //{
+                        //    //SetErrorText($"J{rownum}");
+                        //  CloseExcel();
+                        //    return;
+                        //}
                         rowarray[4] = $" PRIMARY KEY ({rowarray[1]})\n";
                         primarykey = rowarray[4].ToString();
                     }
@@ -334,10 +346,32 @@ namespace SQLGenerator
                 xSqlText.Text = totalsql;
             }));
 
-            ExcelDoc.Close();
-            Application.Quit();
+            CloseExcel();
+
         }
         #endregion
+
+        private void SetErrorText(string cell)
+        {
+            CloseExcel();
+            App.Current.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, new System.Action(delegate
+            {
+                xResultText.Text += $"Error: [{cell}] 값이 null입니다. \nSQL구문 생성을 중단합니다.\n";
+            }));
+        }
+
+        private void CloseExcel()
+        {
+            if (processId != 0)
+            {
+                System.Diagnostics.Process excelProcess = System.Diagnostics.Process.GetProcessById((int)processId);
+                excelProcess.CloseMainWindow();
+                excelProcess.Refresh();
+                excelProcess.Kill();
+            }
+            //ExcelDoc.Close();
+            //Application.Quit();
+        }
 
         #region Background Worker 관련 함수
         void worker_ProgressChanged(object sender, ProgressChangedEventArgs e)
