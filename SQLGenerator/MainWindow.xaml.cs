@@ -2,6 +2,7 @@
 using MySql.Data.MySqlClient;
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
@@ -20,6 +21,56 @@ using System.Windows.Shapes;
 
 namespace SQLGenerator
 {
+    public class FileSet : INotifyPropertyChanged
+    {
+        public event PropertyChangedEventHandler PropertyChanged;
+
+        /// <summary>
+        /// 이벤트 발생
+        /// </summary>
+        /// <param name="propertyName">속성 명</param>
+        protected virtual void OnPropertyChanged(string propertyName)
+        {
+            /// 이벤트 발생
+            if (PropertyChanged != null)
+            {
+                PropertyChanged(this, new PropertyChangedEventArgs(propertyName));
+            }
+        }
+
+        #region FileName 
+        private string _FileName = string.Empty;
+        public string FileName
+        {
+            get { return this._FileName; }
+            set
+            {
+                if (this._FileName != value)
+                {
+                    this._FileName = value;
+                    this.OnPropertyChanged("FileName");
+                }
+            }
+        }
+        #endregion
+
+        #region Code 
+        private string _Code;
+        public string Code
+        {
+            get { return this._Code; }
+            set
+            {
+                if (this._Code != value)
+                {
+                    this._Code = value;
+                    this.OnPropertyChanged("Code");
+                }
+            }
+        }
+        #endregion
+    }
+
     public class TableInfo
     {
         public int StartRowNum { get; set; }
@@ -36,11 +87,21 @@ namespace SQLGenerator
         public MainWindow()
         {
             InitializeComponent();
+            xExcelFilePath.Text = Properties.Settings.Default.ExcelFilePath;
+            xSheetNumber.Text = Properties.Settings.Default.SheetNumber;
+            xServerIP.Text = Properties.Settings.Default.ServerIP;
+            xDBName.Text = Properties.Settings.Default.DatabaseName;
+            xUser.Text = Properties.Settings.Default.UserID;
+            xPwd.Password = Properties.Settings.Default.PassWord;
+            xPort.Text = Properties.Settings.Default.Port;
+            xFileList.ItemsSource = FileList;
         }
+        public ObservableCollection<FileSet> FileList = new ObservableCollection<FileSet>();
         Worksheet ExcelSheet { get; set; }
         Workbook ExcelDoc { get; set; }
         Microsoft.Office.Interop.Excel.Application Application { get; set; }
         List<TableInfo> Tables { get; set; } = new List<TableInfo>();
+        List<String> Seqs { get; set; } = new List<string>();
         BackgroundWorker Worker = new BackgroundWorker();
         [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
         static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwThreadId);
@@ -50,7 +111,7 @@ namespace SQLGenerator
         private void OpenExcelPathBtn_Click(object sender, RoutedEventArgs e)
         {
             var ofd = new System.Windows.Forms.OpenFileDialog();
-            ofd.Filter = "엑셀 파일 (*.xls)|*.xls|엑셀 파일 (*.xlsx)|*.xlsx";
+            ofd.Filter = "엑셀 파일 (*.xlsx)|*.xlsx|엑셀 파일 (*.xls)|*.xls";
 
             var dr = ofd.ShowDialog();
 
@@ -78,6 +139,10 @@ namespace SQLGenerator
             {
                 MessageBox.Show("데이터베이스 이름을 입력하세요.");
             }
+            if (!File.Exists(xExcelFilePath.Text))
+            {
+                MessageBox.Show("파일이 존재하지 않습니다.");
+            }
             else
             {
                 xSqlText.Text = String.Empty;
@@ -93,7 +158,23 @@ namespace SQLGenerator
                 Worker.RunWorkerCompleted += worker_RunWorkerCompleted;
                 Worker.WorkerReportsProgress = true;
                 Worker.RunWorkerAsync();
+                xFileList.SelectedIndex = 0;
             }
+        }
+        #endregion
+
+        #region Save Config 버튼 클릭 이벤트
+        private void SaveConfBtn_Click(object sender, RoutedEventArgs e)
+        {
+            Properties.Settings.Default.ExcelFilePath = xExcelFilePath.Text;
+            Properties.Settings.Default.SheetNumber = xSheetNumber.Text;
+            Properties.Settings.Default.ServerIP = xServerIP.Text;
+            Properties.Settings.Default.DatabaseName = xDBName.Text;
+            Properties.Settings.Default.UserID = xUser.Text;
+            Properties.Settings.Default.PassWord = xPwd.Password;
+            Properties.Settings.Default.Port = xPort.Text;
+            Properties.Settings.Default.Save();
+            MessageBox.Show("저장 완료");
         }
         #endregion
 
@@ -107,8 +188,9 @@ namespace SQLGenerator
                 {
                     conn.Open();
                     CheckTableExist(conn);
-
-                    MySqlCommand cmd = new MySqlCommand(xSqlText.Text, conn);
+                    CheckSeqExist(conn);
+                    var sql = FileList.First(i => i.FileName == "SQL Query");
+                    MySqlCommand cmd = new MySqlCommand(sql.Code, conn);
                     cmd.ExecuteNonQuery();
                     MessageBox.Show("쿼리 입력 완료");
                 }
@@ -154,6 +236,7 @@ namespace SQLGenerator
                             if (reader.HasRows)
                             {
                                 reader.Close();
+                                reftables.Add(table.TableName_ENG);
                                 sql = $"SELECT table_name from information_schema.key_column_usage where referenced_table_name='{table.TableName_ENG}';";
                                 cmd = new MySqlCommand(sql, conn);
                                 using (MySqlDataReader reader2 = cmd.ExecuteReader())
@@ -181,6 +264,36 @@ namespace SQLGenerator
         }
         #endregion
 
+        #region 시퀀스 존재 여부 조회 및 삭제
+        private void CheckSeqExist(MySqlConnection conn)
+        {
+            foreach(var seq in Seqs)
+            {
+                if (xSqlText.Text.Contains(seq))
+                {
+                    var sql = $"SHOW TABLES LIKE '{seq}'";
+                    MySqlCommand cmd = new MySqlCommand(sql, conn);
+                    List<string> existseqs = new List<string>();
+                    using (MySqlDataReader reader = cmd.ExecuteReader())
+                    {
+                        reader.Read();
+                        if (reader.HasRows)
+                        {
+                            reader.Close();
+                            existseqs.Add(seq);
+                            foreach (var eseq in existseqs)
+                            {
+                                sql = $"DROP SEQUENCE {eseq}";
+                                cmd = new MySqlCommand(sql, conn);
+                                cmd.ExecuteNonQuery();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        #endregion
+
         #region 제너레이트 수행
         private void Run(object sender, DoWorkEventArgs e)
         {
@@ -200,15 +313,15 @@ namespace SQLGenerator
             LastColumn = LastColumn + ExcelSheet.UsedRange.Column - 1;
 
             int i = 0;
-            for (i = 1; i <= LastRow; i++)
+            for (i = 1; i <= LastRow+1; i++)
             {
                 if (Application.WorksheetFunction.CountA(ExcelSheet.Rows[i]) == 0)
                 {
                     (ExcelSheet.Rows[i] as Microsoft.Office.Interop.Excel.Range).Delete();
-                    if (i < LastRow - 1)
-                    {
-                        i -= 1;
-                    }
+                    //if (i < LastRow - 1)
+                    //{
+                    //    i -= 1;
+                    //}
                 }
             }
 
@@ -217,10 +330,10 @@ namespace SQLGenerator
                 if (Application.WorksheetFunction.CountA(ExcelSheet.Columns[i]) == 0)
                 {
                     (ExcelSheet.Columns[i] as Microsoft.Office.Interop.Excel.Range).Delete();
-                    if (i < LastColumn - 1)
-                    {
-                        i -= 1;
-                    }
+                    //if (i < LastColumn - 1)
+                    //{
+                    //    i -= 1;
+                    //}
                 }
             }
             ExcelDoc.Save();
@@ -234,9 +347,8 @@ namespace SQLGenerator
             var index = 2;
             var cnt = 0;
 
-            while (index < ExcelSheet.UsedRange.Rows.Count)
+            while (index < ExcelSheet.UsedRange.Rows.Count-1)
             {
-
                 Range range = ExcelSheet.Range[$"A{index}"];
                 cnt = range.MergeArea.Count;
                 Tables.Add(new TableInfo()
@@ -254,12 +366,36 @@ namespace SQLGenerator
         #region 제너레이트
         private void Generate()
         {
+            if (FileList.Any())
+            {
+                FileList = new ObservableCollection<FileSet>();
+            }
             var totalsql = string.Empty;
+            var totalscript = string.Empty;
+            var isoptioned = false;
+            var seqsql = string.Empty;
             foreach (var table in Tables)
             {
                 string sql = $"CREATE TABLE {table.TableName_ENG} (\n\t";
+                string script = "TABLE "+table.TableName_ENG+" {\n";
+                string foreignScript = string.Empty;
                 string primarykey = string.Empty;
+                string foreignkey = string.Empty;
+                seqsql = string.Empty;
                 List<object> row = new List<object>();
+                /*
+                 * rowarray[0]: 컬럼명(한글)
+                 * rowarray[1]: 컬럼명(영문)
+                 * rowarray[2]: 타입
+                 * rowarray[3]: 길이
+                 * rowarray[4]: PK
+                 * rowarray[5]: FK
+                 * rowarray[6]: SQ
+                 * rowarray[7]: NOTNULL
+                 * rowarray[8]: Default      
+                 * rowarray[12]: FK테이블명
+                 * rowarray[13]: FK컬럼명
+                 */
                 for (int rownum = table.StartRowNum; rownum < table.StartRowNum + table.RowCount; rownum++)
                 {
                     row.Clear();
@@ -269,6 +405,8 @@ namespace SQLGenerator
                         row.Add(obj);
                     }
                     var rowarray = row.ToArray();
+                    var scriptarray = new string[4];
+                    //var scriptoption = string.Empty;
                     /*컬럼명(영문) 빈칸 오류*/
                     if (rowarray[1] == null)
                     {
@@ -284,30 +422,16 @@ namespace SQLGenerator
                     /*길이 빈칸 오류(datetime 제외)*/
                     if (rowarray[3] == null)
                     {
-                        if (rowarray[2].ToString() != "datetime")
+                        if (rowarray[2].ToString() != "timestamp" && rowarray[2].ToString() != "text" && rowarray[2].ToString() != "double")
                         {
                             SetErrorText($"F{rownum}");
                             return;
                         }
                     }
-                    if (rowarray[6] != null)
+                    if (rowarray[3] != null)
                     {
-                        rowarray[6] = " AUTO_INCREMENT";
-                    }
-                    if (rowarray[7] != null)
-                    {
-                        /*NOT NULL일 때 Default값 빈칸 오류*/
-                        if (rowarray[8] == null)
-                        {
-                            SetErrorText($"K{rownum}");
-                            return;
-                        }
-                        rowarray[7] = " NOT NULL";
-                    }
-                    if (rowarray[8] != null)
-                    {
-                        var temp = rowarray[8].ToString();
-                        rowarray[8] = $" DEFAULT {temp}";
+                        var temp = rowarray[3];
+                        rowarray[3] = $"({rowarray[3]})";
                     }
                     if (rowarray[4] != null)
                     {
@@ -317,27 +441,132 @@ namespace SQLGenerator
                             SetErrorText($"J{rownum}");
                             return;
                         }
-                        rowarray[4] = $" PRIMARY KEY ({rowarray[1]})\n";
+                        rowarray[4] = $"PRIMARY KEY ({rowarray[1]})\n";
                         primarykey = rowarray[4].ToString();
+                        scriptarray[0] = "pk";
+                        isoptioned = true;
                     }
-                    if (rowarray[3] != null)
+                    if(rowarray[5] != null)
                     {
-                        var temp = rowarray[3];
-                        rowarray[3] = $"({rowarray[3]})";
+                        /*외래키일 때 FK테이블명, FK컬럼명 빈칸 오류*/
+                        if(rowarray[12] == null)
+                        {
+                            SetErrorText($"O{rownum}");
+                            return;
+                        }
+                        else if(rowarray[13] == null)
+                        {
+                            SetErrorText($"P{rownum}");
+                            return;
+                        }
+                        rowarray[5] = $"FOREIGN KEY ({rowarray[1]}) REFERENCES {rowarray[12]}({rowarray[13]})\n";
+                        if(string.IsNullOrEmpty(primarykey))
+                        {
+                            foreignkey += "\t";
+                        }
+                        foreignkey += rowarray[5].ToString();
+                        foreignScript += $"Ref: {rowarray[12]}.{rowarray[13]} > {table.TableName_ENG}.{rowarray[1]}\n";
                     }
-                    sql += $"{rowarray[1]} {rowarray[2]}{rowarray[3]}{rowarray[7]}{rowarray[6]}{rowarray[8]} COMMENT '{rowarray[0]}',\n\t";
+                    if (rowarray[6] != null)
+                    {
+                        rowarray[6] = string.Empty;
+                        seqsql += $"CREATE SEQUENCE {table.TableName_ENG}_SEQ START WITH 1 INCREMENT BY 1;\n";
+                        Seqs.Add($"{table.TableName_ENG}_SEQ");
+                        //CREATE SEQUENCE MATL_FLIGHT_INFO_SEQ START WITH 1 INCREMENT BY 1;
+                    }
+                    if (rowarray[7] != null)
+                    {
+                        rowarray[7] = " NOT NULL";
+                        scriptarray[2] = "not null";
+                        isoptioned = true;
+                    }
+                    else
+                    {
+                        if(rowarray[2].ToString() == "timestamp")
+                        {
+                            rowarray[7] = " NULL DEFAULT NULL";
+                        }
+                    }
+                    if (rowarray[8] != null)
+                    {
+                        var temp = rowarray[8].ToString();
+                        rowarray[8] = $" DEFAULT {temp}"; 
+                        if(temp == "current_timestamp()")
+                        {
+                            temp = $"'{temp}'";
+                        }
+                        scriptarray[3] = $"default: {temp}";
+                        isoptioned = true;
+                    }
+
+                    sql += $"{rowarray[1]} {rowarray[2]}{rowarray[3]}{rowarray[7]}{rowarray[8]} COMMENT '{rowarray[0]}',\n\t";
+                    //script += $"{scriptarray[1]} {scriptarray[2]}{scriptarray[3]} [{scriptarray[4]} {scriptarray[6]} {scriptarray[7]}]";
+                    script += $"\t{rowarray[1]} {rowarray[2]}{rowarray[3]}";
+                    if (isoptioned)
+                    {
+                        script += " [";
+                    }
+                    if (scriptarray[0] != null)
+                    {
+                        script += $"{scriptarray[0]}";
+                    }
+                    if (scriptarray[1] != null)
+                    {
+                        if (script.Substring(script.Length - 1, 1) != "[")
+                        {
+                            script += ", ";
+                        }
+                        script += $"{scriptarray[1]}";
+                    }
+                    if (scriptarray[2] != null)
+                    {
+                        if (script.Substring(script.Length - 1, 1) != "[")
+                        {
+                            script += ", ";
+                        }
+                        script += $"{scriptarray[2]}";
+                    }
+                    if (scriptarray[3] != null)
+                    {
+                        if (script.Substring(script.Length - 1, 1) != "[")
+                        {
+                            script += ", ";
+                        }
+                        script += $"{scriptarray[3]}";
+                    }
+                    if (isoptioned)
+                    {
+                        script += "]";
+                    }
+                    script += "\n";
+                    isoptioned = false;
                 }
                 if (string.IsNullOrEmpty(primarykey))
                 {
                     sql = sql.Substring(0, sql.Length - 3);
                     sql += "\n";
                 }
-                sql += $"{primarykey}) COMMENT='{table.TableName_KOR}';\n";
+                sql += $"{primarykey}{foreignkey}) COMMENT='{table.TableName_KOR}';\n";
+                script += "}\n";
+                script += foreignScript;
+                totalsql += seqsql;
                 totalsql += sql;
+                totalscript += script;
                 Worker.ReportProgress(Tables.IndexOf(table) * 100 / Tables.Count);
             }
+            
             App.Current.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, new System.Action(delegate
             {
+                FileList.Add(new FileSet()
+                {
+                    FileName = "SQL Query",
+                    Code = totalsql
+                });
+                FileList.Add(new FileSet()
+                {
+                    FileName = "Script",
+                    Code = totalscript
+                });
                 xSqlText.Text = totalsql;
             }));
 
@@ -384,5 +613,17 @@ namespace SQLGenerator
         }
         #endregion
 
+        private void xFileList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (xFileList.SelectedItem == null)
+                return;
+
+            xSqlText.Text = (xFileList.SelectedItem as FileSet).Code;
+        }
+
+        private void xSqlText_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            (xFileList.SelectedItem as FileSet).Code = xSqlText.Text;
+        }
     }
 }
